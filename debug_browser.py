@@ -67,6 +67,7 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                 # Create a context and page
                 context = await browser.new_context()
                 current_tabs = []
+                last_save_time = time.time()  # Track when we last saved tabs
                 
                 # Set up route handler for website blocking
                 if blocked_websites:
@@ -92,7 +93,7 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                     await context.route("**/*", route_handler)
                 
                 # Function to save open tabs
-                async def save_tabs():
+                async def save_tabs(force_save=False):
                     tabs_to_save = []
                     for tab in current_tabs:
                         try:
@@ -102,10 +103,19 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                         except Exception as e:
                             print(f"Error saving tab: {e}")
                     
+                    # Don't save empty tab lists unless forced
+                    if not tabs_to_save and not force_save:
+                        print("No valid tabs to save")
+                        return tabs_to_save
+                    
                     # Save tabs to file
                     try:
+                        # If no tabs to save but force_save is True, use the default URL
+                        if not tabs_to_save and force_save:
+                            tabs_to_save = [DEFAULT_URL]
+                        
                         with open(GLOBAL_TABS_FILE, 'w') as f:
-                            json.dump({"tabs": tabs_to_save}, f)
+                            json.dump({"tabs": tabs_to_save, "timestamp": time.time()}, f)
                         print(f"Saved {len(tabs_to_save)} tabs for future sessions")
                     except Exception as e:
                         print(f"Error saving tabs: {e}")
@@ -251,6 +261,14 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                         if not browser.is_connected():
                             print("Browser disconnected - will relaunch automatically")
                             browser_closed = True
+                            
+                            # Try to save tabs before proceeding
+                            try:
+                                open_tabs = await save_tabs(force_save=True)
+                                print(f"Saved {len(open_tabs)} tabs before browser disconnection")
+                            except Exception as e:
+                                print(f"Failed to save tabs on disconnection: {e}")
+                            
                             # Make sure we always reopen when browser is closed externally
                             if auto_reopen and reopen_count < max_reopens:
                                 print("Scheduling browser relaunch...")
@@ -287,8 +305,9 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                         if has_close_signal:
                             print(f"Explicit close signal detected. Reopen: {should_reopen}")
                             browser_closed = True
-                            # Save tabs before closing
-                            open_tabs = await save_tabs()
+                            # Save tabs before closing with force_save=True to ensure they're saved
+                            open_tabs = await save_tabs(force_save=True)
+                            print(f"Saved {len(open_tabs)} tabs before closing browser")
                             await browser.close()
                             
                             # If should_reopen is False, break out of the reopen loop
@@ -351,7 +370,7 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                                         overlay.style.justifyContent = 'center';
                                         overlay.style.alignItems = 'center';
                                         overlay.style.zIndex = '10000';
-                                        overlay.innerHTML = '<div style="background-color: white; padding: 20px; border-radius: 5px; text-align: center;"><h2>Closing Browser</h2><p>Browser will automatically relaunch...</p></div>';
+                                        overlay.innerHTML = '<div style="background-color: white; padding: 20px; border-radius: 5px; text-align: center;"><h2>Closing Browser</h2><p>Browser will automatically relaunch with your tabs restored...</p><p style="font-size: 12px; color: #666;">Your open tabs are being saved</p></div>';
                                         document.body.appendChild(overlay);
                                         
                                         // Create the close signal
@@ -375,6 +394,15 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                             # Update the current tabs list
                             current_tabs = all_pages
                             print(f"Tab count changed: now {len(current_tabs)} tabs")
+                            
+                            # Save tabs whenever the tab count changes
+                            await save_tabs()
+                            
+                        # Periodically save tabs (every 30 seconds)
+                        current_time = time.time()
+                        if current_time - last_save_time > 30:  # 30 seconds
+                            await save_tabs()
+                            last_save_time = current_time
                         
                         # Check for hidden tabs
                         all_hidden = True

@@ -9,7 +9,7 @@ A productivity-focused browser with website blocking and auto-reopen features to
 - **Tab Management**: 
   - Automatically opens a new tab when all tabs are closed
   - Opens a new tab when all existing tabs are hidden
-  - Saves and restores open tabs across sessions
+  - **Enhanced Tab Restoration**: Automatically saves and restores all open tabs when the browser is closed and reopened, ensuring no work is lost
 - **User Interface**:
   - Status banner indicating when website blocking is active
   - Close button for explicitly closing the browser
