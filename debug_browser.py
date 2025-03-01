@@ -6,6 +6,7 @@ import traceback
 import os
 import time
 import json
+from datetime import datetime
 
 # Configuration
 MAX_REOPENS = 10
@@ -29,17 +30,32 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
     # Try to load saved tabs
     try:
         if os.path.exists(GLOBAL_TABS_FILE):
+            print(f">>> Found saved tabs file: {GLOBAL_TABS_FILE}")
             with open(GLOBAL_TABS_FILE, 'r') as f:
                 saved_data = json.load(f)
                 open_tabs = saved_data.get('tabs', [DEFAULT_URL])
                 tab_info = saved_data.get('tab_info', [])
-                print(f"Loaded {len(open_tabs)} saved tabs with state information")
+                saved_time = saved_data.get('datetime', 'unknown time')
+                
+                # Print detailed debug info about loaded tabs
+                print(f">>> LOADED {len(open_tabs)} saved tabs from {saved_time}")
+                print(f">>> TAB URLs: {open_tabs}")
+                print(f">>> GOT {len(tab_info)} tab_info items")
+                # Print each tab's info
+                for i, tab in enumerate(tab_info):
+                    print(f">>>   TAB {i+1}: {tab.get('url')}")
+                
+                # Ensure we have at least some tabs to open
+                if not open_tabs:
+                    print(">>> No valid tabs found in saved file, using default")
+                    open_tabs = [DEFAULT_URL]
         else:
             open_tabs = [DEFAULT_URL]
             tab_info = []
-            print("No saved tabs found, using default")
+            print(">>> No saved tabs file found, using default URL")
     except Exception as e:
-        print(f"Error loading saved tabs: {e}")
+        print(f">>> ERROR loading saved tabs: {e}")
+        print(f">>> Using default URL instead")
         open_tabs = [DEFAULT_URL]
         tab_info = []
     
@@ -98,7 +114,7 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                                     content_type="text/html",
                                     body=f"""<html><body style='font-family: Arial; text-align: center;'>
                                     <h1 style='color: #f44336; margin-top: 50px;'>Website Blocked</h1>
-                                    <p>Access to <strong>{url}</strong> has been blocked to help you stay focused.</p>
+                                    <p>Access to <strong>{url}</strong> has been blocked to help you stay on track with your studies.</p>
                                     <p>This site is on your blocked list: <strong>{blocked_site}</strong></p>
                                     </body></html>"""
                                 )
@@ -110,6 +126,9 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                 
                 # Track page URLs and states
                 tab_states = {}
+                
+                # Add debug print to show tab tracking is initialized
+                print("Tab state tracking initialized")
                 
                 # Function to track page URL changes
                 async def track_page_url(page):
@@ -128,11 +147,14 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                 
                 # Function to save open tabs
                 async def save_tabs(force_save=False):
+                    print(">>> DEBUG: save_tabs called with force_save=", force_save)
+                    print(f">>> DEBUG: Current tabs count: {len(current_tabs)}")
                     tabs_to_save = []
                     for tab in current_tabs:
                         try:
                             # Update tab state before saving
                             url = await track_page_url(tab)
+                            print(f">>> DEBUG: Tab URL tracked: {url}")
                             if url:
                                 tabs_to_save.append(url)
                         except Exception as e:
@@ -140,8 +162,16 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                     
                     # Don't save empty tab lists unless forced
                     if not tabs_to_save and not force_save:
-                        print("No valid tabs to save")
+                        print(">>> WARNING: No valid tabs to save")
                         return tabs_to_save
+                        
+                    # Ensure we're not saving 'about:blank' tabs
+                    tabs_to_save = [url for url in tabs_to_save if url and url != 'about:blank']
+                    
+                    # If we filtered out all tabs, but force_save is true, use default
+                    if not tabs_to_save and force_save:
+                        print(">>> No valid tabs after filtering, using default URL")
+                        tabs_to_save = [DEFAULT_URL]
                     
                     # Save tabs to file
                     try:
@@ -173,25 +203,71 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                         
                         # Save all tab data with state information
                         with open(GLOBAL_TABS_FILE, 'w') as f:
-                            json.dump({
+                            # Create a more descriptive saved state
+                            saved_state = {
                                 "tabs": tabs_to_save, 
                                 "tab_info": tab_info,
-                                "timestamp": time.time()
-                            }, f)
-                        print(f"Saved {len(tabs_to_save)} tabs with state for future sessions")
+                                "timestamp": time.time(),
+                                "datetime": datetime.now().isoformat(),
+                                "tab_count": len(tabs_to_save)
+                            }
+                            json.dump(saved_state, f, indent=2)  # Pretty print for debugging
+                        print(f">>> SAVED {len(tabs_to_save)} tabs to {GLOBAL_TABS_FILE}")
+                        print(f">>> TAB URLs: {tabs_to_save}")
                     except Exception as e:
                         print(f"Error saving tabs: {e}")
                     
                     return tabs_to_save
                 
                 # Open tabs from previous session
+                # Function to handle when a page finishes loading
+                async def handle_page_loaded(page):
+                    try:
+                        url = await track_page_url(page)
+                        print(f"Page loaded: {url}")
+                        # Save tabs on each page load
+                        await save_tabs(force_save=True)
+                    except Exception as e:
+                        print(f"Error in page load handler: {e}")
+                
+                # Set up event handlers for page creation
+                async def handle_new_page(new_page):
+                    print(f"New page created: tracking it")
+                    if new_page not in current_tabs:
+                        current_tabs.append(new_page)
+                    
+                    # Always navigate to Google.com for any new page
+                    try:
+                        await new_page.goto(DEFAULT_URL, timeout=30000)
+                        print(f"Navigated new page to Google: {DEFAULT_URL}")
+                    except Exception as e:
+                        print(f"Error navigating to Google: {e}")
+                    
+                    # Immediately start tracking this page
+                    url = await track_page_url(new_page)
+                    print(f"New page URL: {url}")
+                    # Set up automatic state saving on page load
+                    new_page.on("load", lambda: asyncio.create_task(handle_page_loaded(new_page)))
+                
+                # Set up context to detect new pages
+                context.on("page", lambda new_page: asyncio.create_task(handle_new_page(new_page)))
+                print("Page creation tracking is active")
+                
+                # Print detailed debug info about tab restoration
+                print(f">>> RESTORING TABS: Found {len(open_tabs)} tabs to restore")
+                print(f">>> TABS TO RESTORE: {', '.join(open_tabs)}")
+                print(f">>> TAB INFO COUNT: {len(tab_info) if 'tab_info' in locals() else 'NOT_FOUND'}")
+                
                 if open_tabs:
+                    print(f">>> OPENING FIRST TAB: Always using Google instead of {open_tabs[0]}")
                     first_page = await context.new_page()
                     current_tabs.append(first_page)
+                    # Manually track the first page
+                    asyncio.create_task(handle_new_page(first_page))
                     
                     try:
-                        await first_page.goto(open_tabs[0], timeout=30000)
-                        print(f"Opened first tab: {open_tabs[0]}")
+                        await first_page.goto(DEFAULT_URL, timeout=30000)
+                        print(f"Opened first tab to Google: {DEFAULT_URL}")
                         
                         # Restore first tab's state if available
                         if tab_info and len(tab_info) > 0:
@@ -209,109 +285,32 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                                     print(f"Error restoring first tab scroll position: {e}")
                     except Exception as e:
                         print(f"Error opening first tab: {e}")
-                        await first_page.goto(DEFAULT_URL)
-                    
-                    # Add browser UI elements
-                    await first_page.evaluate("""
-                        // Add a header banner
-                        const banner = document.createElement('div');
-                        banner.style.position = 'fixed';
-                        banner.style.top = '0';
-                        banner.style.left = '0';
-                        banner.style.right = '0';
-                        banner.style.backgroundColor = '#4CAF50';
-                        banner.style.color = 'white';
-                        banner.style.padding = '10px';
-                        banner.style.zIndex = '9999';
-                        banner.style.textAlign = 'center';
-                        banner.style.fontSize = '14px';
-                        banner.innerHTML = 'Focus Browser - Navigation allowed, website blocking active';
-                        document.body.appendChild(banner);
-                        
-                        // Add visibility change detection
-                        document.addEventListener('visibilitychange', function() {
-                            if (document.visibilityState === 'hidden') {
-                                console.log('Tab hidden, may open new tab if needed');
-                                // Create a signal element to indicate this tab was hidden
-                                const hiddenSignal = document.createElement('div');
-                                hiddenSignal.id = 'tab-hidden-signal';
-                                hiddenSignal.setAttribute('data-hidden-time', Date.now());
-                                hiddenSignal.style.display = 'none';
-                                document.body.appendChild(hiddenSignal);
-                            } else if (document.visibilityState === 'visible') {
-                                // Remove the hidden signal if tab becomes visible again
-                                const hiddenSignal = document.getElementById('tab-hidden-signal');
-                                if (hiddenSignal) {
-                                    hiddenSignal.remove();
-                                }
-                            }
-                        });
-                        
-                        // Add a close button
-                        const closeBtn = document.createElement('button');
-                        closeBtn.textContent = 'Close Browser';
-                        closeBtn.style.position = 'fixed';
-                        closeBtn.style.bottom = '10px';
-                        closeBtn.style.right = '10px';
-                        closeBtn.style.zIndex = '9999';
-                        closeBtn.style.padding = '8px 16px';
-                        closeBtn.style.backgroundColor = '#f44336';
-                        closeBtn.style.color = 'white';
-                        closeBtn.style.border = 'none';
-                        closeBtn.style.borderRadius = '4px';
-                        closeBtn.style.cursor = 'pointer';
-                        closeBtn.onclick = () => {
-                            // Display closing message
-                            const overlay = document.createElement('div');
-                            overlay.style.position = 'fixed';
-                            overlay.style.top = '0';
-                            overlay.style.left = '0';
-                            overlay.style.width = '100%';
-                            overlay.style.height = '100%';
-                            overlay.style.backgroundColor = 'rgba(0,0,0,0.7)';
-                            overlay.style.display = 'flex';
-                            overlay.style.justifyContent = 'center';
-                            overlay.style.alignItems = 'center';
-                            overlay.style.zIndex = '10000';
-                            overlay.innerHTML = '<div style="background-color: white; padding: 20px; border-radius: 5px; text-align: center;"><h2>Closing Browser</h2><p>Browser will automatically relaunch...</p></div>';
-                            document.body.appendChild(overlay);
-                            
-                            // Create the close signal
-                            const signal = document.createElement('div');
-                            signal.id = 'browser-close-signal';
-                            signal.setAttribute('data-reopen', 'true'); // Signal to reopen
-                            signal.style.display = 'none';
-                            document.body.appendChild(signal);
-                            
-                            // Give time for the message to be seen
-                            setTimeout(() => {
-                                window.close();
-                            }, 1000);
-                        };
-                        document.body.appendChild(closeBtn);
-                        
-                        // Add keyboard shortcuts info
-                        const shortcutInfo = document.createElement('div');
-                        shortcutInfo.style.position = 'fixed';
-                        shortcutInfo.style.bottom = '10px';
-                        shortcutInfo.style.left = '10px';
-                        shortcutInfo.style.zIndex = '9999';
-                        shortcutInfo.style.padding = '8px';
-                        shortcutInfo.style.backgroundColor = '#3498db';
-                        shortcutInfo.style.color = 'white';
-                        shortcutInfo.style.borderRadius = '4px';
-                        shortcutInfo.style.fontSize = '12px';
-                        shortcutInfo.innerHTML = 'Press <strong>Ctrl+Q</strong> to close browser';
-                        document.body.appendChild(shortcutInfo);
-                    """)
+                        # Still try to go to Google even on error
+                        try:
+                            await first_page.goto(DEFAULT_URL, timeout=30000)
+                            print(f"Opened first tab to Google after error")
+                        except Exception as e2:
+                            print(f"Failed to open Google after error: {e2}")
                     
                     # Open additional tabs
+                    if len(open_tabs) > 1:
+                        print(f">>> RESTORING {len(open_tabs)-1} ADDITIONAL TABS")
+                    
                     for i, tab_url in enumerate(open_tabs[1:], 1):
                         try:
-                            print(f"Opening tab {i+1}: {tab_url}")
+                            print(f">>> OPENING TAB {i+1}: Always using Google instead of {tab_url}")
                             new_tab = await context.new_page()
                             current_tabs.append(new_tab)
-                            await new_tab.goto(tab_url, timeout=30000)
+                            # Set up event handlers before navigation using a function to capture the correct tab reference
+                            def create_load_handler(tab):
+                                return lambda: asyncio.create_task(handle_page_loaded(tab))
+                            
+                            # Use the function to create a properly scoped handler
+                            new_tab.on("load", create_load_handler(new_tab))
+                            
+                            # Always navigate to Google instead of the saved URL
+                            await new_tab.goto(DEFAULT_URL, timeout=30000)
+                            print(f">>> SUCCESSFULLY OPENED TAB {i+1} TO GOOGLE")
                             
                             # Force track this tab's URL
                             await track_page_url(new_tab)
@@ -339,7 +338,16 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                                 });
                             """)
                         except Exception as e:
-                            print(f"Error opening tab {i+1}: {e}")
+                            print(f">>> ERROR opening tab {i+1}: {e}")
+                            print(f">>> Will try to create a new tab with default URL instead")
+                            try:
+                                # Try to create a new tab with the default URL instead
+                                new_tab = await context.new_page()
+                                current_tabs.append(new_tab)
+                                await new_tab.goto(DEFAULT_URL, timeout=30000)
+                                print(f">>> Created replacement tab with default URL")
+                            except Exception as fallback_error:
+                                print(f">>> CRITICAL ERROR: Could not create fallback tab: {fallback_error}")
                 else:
                     # Just open a single tab with the default URL
                     first_page = await context.new_page()
@@ -370,10 +378,13 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                             await asyncio.sleep(1)  # Sleep on error
                 
                 # Start the periodic saver as a background task
-                asyncio.create_task(periodic_tab_saver())
+                tab_save_task = asyncio.create_task(periodic_tab_saver())
+                print(">>> PERIODIC TAB SAVER STARTED <<<")
                 
                 # Main browser monitoring loop
                 print("Browser open and running - monitoring for close events")
+                print(">>> DEBUG: Browser is now fully initialized and running")
+                print(f">>> DEBUG: Current tabs: {len(current_tabs)}")
                 while not browser_closed:
                     try:
                         # Check if browser was closed
@@ -418,7 +429,19 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                             
                             # Make sure we always reopen when browser is closed externally
                             if auto_reopen and reopen_count < max_reopens:
-                                print("Scheduling browser relaunch...")
+                                print(">>> SCHEDULING BROWSER RELAUNCH...")
+                                print(">>> TABS WILL BE RESTORED FROM: " + GLOBAL_TABS_FILE)
+                                # Force reload of tabs from file
+                                try:
+                                    if os.path.exists(GLOBAL_TABS_FILE):
+                                        with open(GLOBAL_TABS_FILE, 'r') as f:
+                                            saved_data = json.load(f)
+                                            open_tabs = saved_data.get('tabs', [DEFAULT_URL])
+                                            tab_info = saved_data.get('tab_info', [])
+                                            saved_time = saved_data.get('datetime', 'unknown time')
+                                            print(f">>> RELAUNCH: Will restore {len(open_tabs)} tabs: {open_tabs}")
+                                except Exception as e:
+                                    print(f">>> ERROR reloading tabs for relaunch: {e}")
                             else:
                                 print("Warning: Auto-reopen limit reached or disabled")
                             break
@@ -473,70 +496,7 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                                 print("All tabs were closed - opening a new tab")
                                 new_tab = await context.new_page()
                                 await new_tab.goto(DEFAULT_URL)
-                                
-                                # Add UI elements to new tab
-                                await new_tab.evaluate("""
-                                    // Add a header banner
-                                    const banner = document.createElement('div');
-                                    banner.style.position = 'fixed';
-                                    banner.style.top = '0';
-                                    banner.style.left = '0';
-                                    banner.style.right = '0';
-                                    banner.style.backgroundColor = '#4CAF50';
-                                    banner.style.color = 'white';
-                                    banner.style.padding = '10px';
-                                    banner.style.zIndex = '9999';
-                                    banner.style.textAlign = 'center';
-                                    banner.style.fontSize = '14px';
-                                    banner.innerHTML = 'Focus Browser - New Tab Opened Automatically';
-                                    document.body.appendChild(banner);
-                                    
-                                    // Add close button
-                                    const closeBtn = document.createElement('button');
-                                    closeBtn.textContent = 'Close Browser';
-                                    closeBtn.style.position = 'fixed';
-                                    closeBtn.style.bottom = '10px';
-                                    closeBtn.style.right = '10px';
-                                    closeBtn.style.zIndex = '9999';
-                                    closeBtn.style.padding = '8px 16px';
-                                    closeBtn.style.backgroundColor = '#f44336';
-                                    closeBtn.style.color = 'white';
-                                    closeBtn.style.border = 'none';
-                                    closeBtn.style.borderRadius = '4px';
-                                    closeBtn.style.cursor = 'pointer';
-                                    closeBtn.onclick = () => {
-                                        // Display closing message
-                                        const overlay = document.createElement('div');
-                                        overlay.style.position = 'fixed';
-                                        overlay.style.top = '0';
-                                        overlay.style.left = '0';
-                                        overlay.style.width = '100%';
-                                        overlay.style.height = '100%';
-                                        overlay.style.backgroundColor = 'rgba(0,0,0,0.7)';
-                                        overlay.style.display = 'flex';
-                                        overlay.style.justifyContent = 'center';
-                                        overlay.style.alignItems = 'center';
-                                        overlay.style.zIndex = '10000';
-                                        overlay.innerHTML = '<div style="background-color: white; padding: 20px; border-radius: 5px; text-align: center;"><h2>Closing Browser</h2><p>Browser will automatically relaunch with your tabs restored...</p><p style="font-size: 12px; color: #666;">Your open tabs are being saved</p></div>';
-                                        document.body.appendChild(overlay);
-                                        
-                                        // Create the close signal
-                                        const signal = document.createElement('div');
-                                        signal.id = 'browser-close-signal';
-                                        signal.setAttribute('data-reopen', 'true');
-                                        signal.style.display = 'none';
-                                        document.body.appendChild(signal);
-                                        
-                                        // Give time for the message to be seen
-                                        setTimeout(() => {
-                                            window.close();
-                                        }, 1000);
-                                    };
-                                    document.body.appendChild(closeBtn);
-                                """)
-                                
-                                # Update current tabs list
-                                all_pages = context.pages
+                                current_tabs.append(new_tab)
                             
                             # Update the current tabs list
                             current_tabs = all_pages
@@ -551,103 +511,6 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                             await save_tabs()
                             last_save_time = current_time
                         
-                        # Check for hidden tabs
-                        all_hidden = True
-                        if len(current_tabs) > 0:
-                            for tab in current_tabs:
-                                try:
-                                    # Check if this tab has a hidden signal
-                                    has_hidden_signal = await tab.evaluate("!!document.getElementById('tab-hidden-signal')")
-                                    
-                                    # If at least one tab is not hidden, we don't need to open a new one
-                                    if not has_hidden_signal:
-                                        all_hidden = False
-                                        break
-                                except Exception:
-                                    # If we can't check, assume it's not hidden
-                                    all_hidden = False
-                            
-                            # If all tabs are hidden, open a new tab
-                            if all_hidden:
-                                print("All tabs are hidden - opening a new visible tab")
-                                try:
-                                    new_tab = await context.new_page()
-                                    await new_tab.goto(DEFAULT_URL)
-                                    current_tabs.append(new_tab)
-                                    
-                                    # Add UI elements to the new tab
-                                    await new_tab.evaluate("""
-                                        // Add a header banner
-                                        const banner = document.createElement('div');
-                                        banner.style.position = 'fixed';
-                                        banner.style.top = '0';
-                                        banner.style.left = '0';
-                                        banner.style.right = '0';
-                                        banner.style.backgroundColor = '#3498db';
-                                        banner.style.color = 'white';
-                                        banner.style.padding = '10px';
-                                        banner.style.zIndex = '9999';
-                                        banner.style.textAlign = 'center';
-                                        banner.style.fontSize = '14px';
-                                        banner.innerHTML = 'Focus Browser - Auto-opened tab (other tabs were hidden)';
-                                        document.body.appendChild(banner);
-                                        
-                                        // Add close button
-                                        const closeBtn = document.createElement('button');
-                                        closeBtn.textContent = 'Close Browser';
-                                        closeBtn.style.position = 'fixed';
-                                        closeBtn.style.bottom = '10px';
-                                        closeBtn.style.right = '10px';
-                                        closeBtn.style.zIndex = '9999';
-                                        closeBtn.style.padding = '8px 16px';
-                                        closeBtn.style.backgroundColor = '#f44336';
-                                        closeBtn.style.color = 'white';
-                                        closeBtn.style.border = 'none';
-                                        closeBtn.style.borderRadius = '4px';
-                                        closeBtn.style.cursor = 'pointer';
-                                        closeBtn.onclick = () => {
-                                            const signal = document.createElement('div');
-                                            signal.id = 'browser-close-signal';
-                                            signal.setAttribute('data-reopen', 'true');
-                                            signal.style.display = 'none';
-                                            document.body.appendChild(signal);
-                                            
-                                            // Overlay message
-                                            const overlay = document.createElement('div');
-                                            overlay.style.position = 'fixed';
-                                            overlay.style.top = '0';
-                                            overlay.style.left = '0';
-                                            overlay.style.width = '100%';
-                                            overlay.style.height = '100%';
-                                            overlay.style.backgroundColor = 'rgba(0,0,0,0.7)';
-                                            overlay.style.display = 'flex';
-                                            overlay.style.justifyContent = 'center';
-                                            overlay.style.alignItems = 'center';
-                                            overlay.style.zIndex = '10000';
-                                            overlay.innerHTML = '<div style="background-color: white; padding: 20px; border-radius: 5px; text-align: center;"><h2>Closing Browser</h2><p>Browser will automatically relaunch...</p></div>';
-                                            document.body.appendChild(overlay);
-                                            
-                                            setTimeout(() => window.close(), 1000);
-                                        };
-                                        document.body.appendChild(closeBtn);
-                                        
-                                        // Add visibility change listener
-                                        document.addEventListener('visibilitychange', function() {
-                                            if (document.visibilityState === 'hidden') {
-                                                const hiddenSignal = document.createElement('div');
-                                                hiddenSignal.id = 'tab-hidden-signal';
-                                                hiddenSignal.setAttribute('data-hidden-time', Date.now());
-                                                hiddenSignal.style.display = 'none';
-                                                document.body.appendChild(hiddenSignal);
-                                            } else if (document.visibilityState === 'visible') {
-                                                const hiddenSignal = document.getElementById('tab-hidden-signal');
-                                                if (hiddenSignal) hiddenSignal.remove();
-                                            }
-                                        });
-                                    """)
-                                except Exception as e:
-                                    print(f"Error opening new tab for hidden tabs: {e}")
-                        
                         # Short delay before next check
                         await asyncio.sleep(0.5)
                         
@@ -660,7 +523,9 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                 
                 # Browser closed, save tabs for reopening
                 if not browser_closed:
-                    open_tabs = await save_tabs()
+                    # Force save tabs before closing
+                    print(">>> FORCE SAVING TABS BEFORE BROWSER CLOSE")
+                    open_tabs = await save_tabs(force_save=True)
                     await browser.close()
                 
                 print("Browser session ended")
@@ -668,7 +533,29 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                 # Handle auto-reopen
                 if auto_reopen and reopen_count < max_reopens:
                     reopen_count += 1
-                    print(f"Auto-reopening browser (attempt {reopen_count}/{max_reopens})")
+                    print(f">>> AUTO-REOPENING BROWSER (attempt {reopen_count}/{max_reopens})")
+                    print(f">>> WILL RESTORE TABS FROM: {GLOBAL_TABS_FILE}")
+                    
+                    # Force reload tabs from file before continuing
+                    try:
+                        if os.path.exists(GLOBAL_TABS_FILE):
+                            print(f">>> RELAUNCH: Reading tabs from {GLOBAL_TABS_FILE}")
+                            with open(GLOBAL_TABS_FILE, 'r') as f:
+                                saved_data = json.load(f)
+                                open_tabs = saved_data.get('tabs', [DEFAULT_URL])
+                                tab_info = saved_data.get('tab_info', [])
+                                saved_time = saved_data.get('datetime', 'unknown time')
+                                print(f">>> RELAUNCH: Found {len(open_tabs)} tabs saved at {saved_time}")
+                                print(f">>> RELAUNCH: Will restore tabs: {open_tabs}")
+                                
+                                # Ensure we have valid tabs
+                                if not open_tabs or all(not url or url == 'about:blank' for url in open_tabs):
+                                    print(">>> RELAUNCH: No valid tabs found, using default URL")
+                                    open_tabs = [DEFAULT_URL]
+                                    tab_info = []
+                    except Exception as e:
+                        print(f">>> ERROR reloading tabs for relaunch: {e}")
+                        
                     await asyncio.sleep(REOPEN_DELAY)
                     continue
                 else:
@@ -681,7 +568,20 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
             
             if auto_reopen and reopen_count < max_reopens:
                 reopen_count += 1
-                print(f"Reopening after error (attempt {reopen_count}/{max_reopens})")
+                print(f">>> REOPENING AFTER ERROR (attempt {reopen_count}/{max_reopens})")
+                print(f">>> WILL RESTORE TABS FROM: {GLOBAL_TABS_FILE}")
+                
+                # Force reload tabs from file before continuing
+                try:
+                    if os.path.exists(GLOBAL_TABS_FILE):
+                        with open(GLOBAL_TABS_FILE, 'r') as f:
+                            saved_data = json.load(f)
+                            open_tabs = saved_data.get('tabs', [DEFAULT_URL])
+                            tab_info = saved_data.get('tab_info', [])
+                            print(f">>> RELAUNCH AFTER ERROR: Will restore {len(open_tabs)} tabs: {open_tabs}")
+                except Exception as e:
+                    print(f">>> ERROR reloading tabs for error recovery: {e}")
+                    
                 await asyncio.sleep(REOPEN_DELAY)
             else:
                 print("Too many errors or auto-reopen disabled")

@@ -229,9 +229,7 @@ async def start_browser_async(blocked_websites, auto_reopen=True, max_reopens=20
                         div.style.boxShadow = '0 4px 8px rgba(0,0,0,0.3)';
                         
                         // Add the text message with stronger emphasis on navigation
-                        div.innerHTML = 'Study Browser Active - Websites Blocked: ' + blockedSites + 
-                                      ' <strong>(Browser will stay open when typing URLs or navigating between tabs)</strong>';
-                        
+                        div.innerHTML = '';
                         document.body.appendChild(div);
                         
                         // Add a simple message about the browser being open

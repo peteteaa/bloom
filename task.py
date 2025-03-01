@@ -380,11 +380,18 @@ def start_browser():
         # Get the path to the debug_browser.py script
         script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'debug_browser.py')
         
+        # Get request data
+        data = request.get_json()
+        auto_reopen = data.get('autoReopen', True)
+        
         # Start the browser process with the blocked websites as arguments
         cmd = ['python', script_path]
         
-        # Always enable auto-reopen with high limits
-        cmd.append('--max-reopens=50')  # Allow many reopens to keep browser running
+        # Enable auto-reopen with high limits if requested
+        if auto_reopen:
+            cmd.append('--max-reopens=50')  # Allow many reopens to keep browser running
+        else:
+            cmd.append('--no-reopen')  # Disable auto-reopen if not requested
         
         # Add blocked websites as arguments
         cmd.extend(blocked_websites)  # Add each blocked website as a separate argument
@@ -399,13 +406,16 @@ def start_browser():
             log_file.write(f"Browser launch at {datetime.now().isoformat()}\n")
             log_file.write(f"Command: {' '.join(cmd)}\n\n")
             
-            # Start process with output redirected to the log file
+            # Start process with output shown in the terminal directly
             process = subprocess.Popen(
                 cmd, 
-                stdout=log_file, 
-                stderr=log_file,
-                start_new_session=True  # This is important to detach the process
+                # Avoid redirection completely for maximum debug visibility
+                # stdout and stderr will directly go to the terminal
+                start_new_session=False  # Keep process attached for visibility
             )
+            
+            # Output will be shown directly in terminal
+            print("Browser process started - debug output will be visible in terminal")
         
         return jsonify({'success': True})
     except Exception as e:
@@ -713,68 +723,17 @@ async def start_browser_async(blocked_websites):
     print("\n" + "#" * 50)
     print(f"[DEBUG] start_browser_async called with blocked_websites: {blocked_websites}")
     
+    # Import the start_browser function from debug_browser
+    from debug_browser import start_browser
+    
+    # Call the debug_browser's start_browser function which handles tab restoration
     try:
-        print("[DEBUG] Initializing Playwright...")
-        async with async_playwright() as p:
-            print("[DEBUG] Launching Chromium browser...")
-            browser = await p.chromium.launch(headless=False)
-            print(f"[DEBUG] Browser launched successfully, connected: {browser.is_connected()}")
-            
-            print("[DEBUG] Creating browser context")
-            context = await browser.new_context()
-            
-            print("[DEBUG] Creating new page")
-            page = await context.new_page()
-            
-            # Set up route handler to block specified websites
-            async def route_handler(route):
-                url = route.request.url
-                blocked = False
-                
-                for blocked_site in blocked_websites:
-                    if blocked_site in url:
-                        print(f"[DEBUG] Blocking access to: {url} (matched {blocked_site})")
-                        blocked = True
-                        break
-                
-                if blocked:
-                    # Redirect to a blocked page or just abort
-                    print(f"[DEBUG] Aborting request to blocked site: {url}")
-                    await route.abort()
-                else:
-                    # Allow the request to continue
-                    await route.continue_()
-            
-            # Set up website blocking if there are sites to block
-            if blocked_websites:
-                print(f"[DEBUG] Setting up route handler for blocking {len(blocked_websites)} websites...")
-                await context.route('**/*', route_handler)
-                print("[DEBUG] Website blocking routes established")
-            else:
-                print("[DEBUG] No websites to block, skipping route handler setup")
-            
-            # Navigate to a start page
-            print("[DEBUG] Navigating to Google...")
-            try:
-                await page.goto('https://www.google.com')
-                print("[DEBUG] Successfully navigated to Google")
-            except Exception as nav_error:
-                print(f"[DEBUG] Navigation error: {nav_error}")
-                print(f"[DEBUG] Navigation error traceback: {traceback.format_exc()}")
-            
-            print("[DEBUG] Browser is now open and ready for use")
-            
-            # Keep the browser open until closed
-            try:
-                print("[DEBUG] Waiting for browser disconnection event")
-                await browser.wait_for_event('disconnected')
-                print("[DEBUG] Browser was closed by user")
-            except Exception as wait_error:
-                print(f"[DEBUG] Error while waiting for browser to close: {wait_error}")
-                print(f"[DEBUG] Wait error traceback: {traceback.format_exc()}")
+        await start_browser(blocked_websites=blocked_websites, auto_reopen=True)
     except Exception as e:
         print(f"[DEBUG] Error in browser session: {e}")
         print(f"[DEBUG] Error traceback: {traceback.format_exc()}")
+            
+    # The debug_browser's start_browser function handles everything, including waiting for the browser to close
 
 if __name__ == '__main__':
     app.run(debug=True)

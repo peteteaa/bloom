@@ -107,7 +107,7 @@ class WebsiteBlocker {
         this.openBrowserBtn = document.getElementById('openBrowserBtn');
         
         // Rename the button to be clearer
-        this.openBrowserBtn.textContent = 'Open & Auto-Close Browser';
+        this.openBrowserBtn.textContent = 'Start Study Browser';
         
         // Add a flag to track if auto-reopen is active
         this.autoReopenActive = false;
@@ -198,7 +198,7 @@ class WebsiteBlocker {
         if (this.autoReopenActive) return;
         
         this.autoReopenActive = true;
-        this.openBrowserBtn.textContent = 'Stop Auto-Reopening';
+        this.openBrowserBtn.textContent = 'Close Study Browser';
         this.openBrowserBtn.classList.add('active');
         
         // Open browser immediately with auto-reopen enabled
@@ -211,7 +211,7 @@ class WebsiteBlocker {
         if (!this.autoReopenActive) return;
         
         this.autoReopenActive = false;
-        this.openBrowserBtn.textContent = 'Open & Auto-Close Browser';
+        this.openBrowserBtn.textContent = 'Start Study Browser';
         this.openBrowserBtn.classList.remove('active');
         
         this.showNotification('Auto-reopening deactivated', 'success');
@@ -228,8 +228,10 @@ class WebsiteBlocker {
             
             // If auto-reopen is active, pass that to the server
             if (this.autoReopenActive) {
-                // We'll keep the existing auto-reopen functionality in the Python script
-                // No need to modify the request
+                // Add auto-reopen flag to the request
+                body.autoReopen = true;
+            } else {
+                body.autoReopen = false;
             }
             
             // Call the API to start the browser with blocked websites
@@ -603,3 +605,4 @@ document.addEventListener('DOMContentLoaded', () => {
     new TaskManager();
     new WebsiteBlocker();
 });
+
