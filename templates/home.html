@@ -1,0 +1,202 @@
+
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Study Schedule - Home</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background-color: #f5f5f5;
+            }
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                display: flex;
+                gap: 20px;
+            }
+            .schedule-form {
+                flex: 1;
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .schedule-display {
+                flex: 1;
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            h1 {
+                color: #333;
+                margin-bottom: 20px;
+            }
+            .form-group {
+                margin-bottom: 15px;
+            }
+            label {
+                display: block;
+                margin-bottom: 5px;
+                color: #666;
+            }
+            input, select {
+                width: 100%;
+                padding: 8px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+            }
+            .checkbox-group {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+            }
+            .checkbox-group label {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+            }
+            .checkbox-group input[type="checkbox"] {
+                width: auto;
+            }
+            button {
+                background: #4CAF50;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 16px;
+            }
+            button:hover {
+                background: #45a049;
+            }
+            .nav-buttons {
+                margin-top: 20px;
+                text-align: center;
+            }
+            .schedule-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 20px;
+            }
+            .schedule-table th, .schedule-table td {
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: left;
+            }
+            .schedule-table th {
+                background-color: #f8f8f8;
+            }
+        </style>
+        <script src='https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js'></script>
+    </head>
+    <body>
+        <div class="container">
+            <div class="schedule-form">
+                <h1>Set Your Class Schedule</h1>
+                <form id="classForm">
+                    <div class="form-group">
+                        <label for="className">Class Name:</label>
+                        <input type="text" id="className" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Days:</label>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" name="days" value="Monday"> Monday</label>
+                            <label><input type="checkbox" name="days" value="Tuesday"> Tuesday</label>
+                            <label><input type="checkbox" name="days" value="Wednesday"> Wednesday</label>
+                            <label><input type="checkbox" name="days" value="Thursday"> Thursday</label>
+                            <label><input type="checkbox" name="days" value="Friday"> Friday</label>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="startTime">Start Time:</label>
+                        <input type="time" id="startTime" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="endTime">End Time:</label>
+                        <input type="time" id="endTime" required>
+                    </div>
+                    
+                    <button type="submit">Add Class</button>
+                </form>
+            </div>
+            
+            <div class="schedule-display">
+                <h1>Current Schedule</h1>
+                <table class="schedule-table">
+                    <thead>
+                        <tr>
+                            <th>Class</th>
+                            <th>Days</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scheduleBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div class="nav-buttons">
+            <button onclick="window.location.href='/schedule'">Go to Study Schedule</button>
+        </div>
+
+        <script>
+            function updateScheduleTable() {
+                $.get('/api/class_schedule', function(data) {
+                    const tbody = $('#scheduleBody');
+                    tbody.empty();
+                    
+                    data.forEach(function(class_) {
+                        tbody.append(`
+                            <tr>
+                                <td>${class_.name}</td>
+                                <td>${class_.days.join(', ')}</td>
+                                <td>${class_.start_time} - ${class_.end_time}</td>
+                            </tr>
+                        `);
+                    });
+                });
+            }
+
+            $(document).ready(function() {
+                updateScheduleTable();
+
+                $('#classForm').submit(function(e) {
+                    e.preventDefault();
+                    
+                    const selectedDays = [];
+                    $('input[name="days"]:checked').each(function() {
+                        selectedDays.push($(this).val());
+                    });
+
+                    const formData = {
+                        name: $('#className').val(),
+                        days: selectedDays,
+                        startTime: $('#startTime').val(),
+                        endTime: $('#endTime').val()
+                    };
+
+                    $.ajax({
+                        url: '/api/class_schedule',
+                        method: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify(formData),
+                        success: function() {
+                            $('#classForm')[0].reset();
+                            updateScheduleTable();
+                        }
+                    });
+                });
+            });
+        </script>
+    </body>
+    </html>
+    

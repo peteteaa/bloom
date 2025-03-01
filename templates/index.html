@@ -1,0 +1,190 @@
+
+    <!DOCTYPE html>
+<html>
+<head>
+    <title>Study Schedule</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href='https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/3.10.2/fullcalendar.min.css' rel='stylesheet' />
+    <link href='https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/3.10.2/fullcalendar.print.min.css' rel='stylesheet' media='print' />
+    <script src='https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.24.0/moment.min.js'></script>
+    <script src='https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js'></script>
+    <script src='https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/3.10.2/fullcalendar.min.js'></script>
+        <style>
+        :root {
+            --primary-color: #2196F3;
+            --danger-color: #dc3545;
+            --success-color: #28a745;
+            --background-color: #f5f5f5;
+            --shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background-color: var(--background-color);
+            color: #333;
+        }
+
+        .container {
+            display: flex;
+            gap: 30px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .sidebar {
+            flex: 1;
+            max-width: 400px;
+        }
+
+        .main-content {
+            flex: 2;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+        }
+
+        h1, h2 {
+            color: #1a1a1a;
+            margin-top: 0;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #666;
+            font-weight: 500;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.1);
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background: #1976D2;
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 6px;
+            color: white;
+            animation: slideIn 0.3s ease-out;
+            z-index: 1000;
+        }
+
+        .notification.success {
+            background: var(--success-color);
+        }
+
+        .notification.error {
+            background: var(--danger-color);
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+            .sidebar {
+                max-width: none;
+            }
+        }
+        </style>
+    </head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="card">
+                <h2>Add Assignment</h2>
+                <form id="taskForm">
+                    <div class="form-group">
+                        <label for="title">Assignment Title:</label>
+                        <input type="text" id="title" required placeholder="e.g., Math Homework">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="dueDate">Due Date:</label>
+                        <input type="date" id="dueDate" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="timeNeeded">Time Needed (hours):</label>
+                        <input type="number" id="timeNeeded" min="1" step="0.5" required placeholder="e.g., 3">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="priority">Priority Level:</label>
+                        <select id="priority" required>
+                            <option value="1">1 - Low Priority</option>
+                            <option value="2">2 - Medium-Low Priority</option>
+                            <option value="3" selected>3 - Medium Priority</option>
+                            <option value="4">4 - Medium-High Priority</option>
+                            <option value="5">5 - High Priority</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="description">Description (optional):</label>
+                        <input type="text" id="description" placeholder="Add any notes or details">
+                    </div>
+                    
+                    <button type="submit">Schedule Assignment</button>
+                </form>
+            </div>
+        </div>
+        
+        <div class="main-content">
+            <div class="card">
+                <h1>Study Schedule</h1>
+                <div id='calendar'></div>
+            </div>
+        </div>
+    </div>
+
+            <script src="/static/js/app.js"></script>
+</body>
+</html>
+    </body>
+    </html>
+    
