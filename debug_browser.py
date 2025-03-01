@@ -32,13 +32,16 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
             with open(GLOBAL_TABS_FILE, 'r') as f:
                 saved_data = json.load(f)
                 open_tabs = saved_data.get('tabs', [DEFAULT_URL])
-                print(f"Loaded {len(open_tabs)} saved tabs")
+                tab_info = saved_data.get('tab_info', [])
+                print(f"Loaded {len(open_tabs)} saved tabs with state information")
         else:
             open_tabs = [DEFAULT_URL]
+            tab_info = []
             print("No saved tabs found, using default")
     except Exception as e:
         print(f"Error loading saved tabs: {e}")
         open_tabs = [DEFAULT_URL]
+        tab_info = []
     
     while True:  # Main browser session loop for reopening
         try:
@@ -69,6 +72,19 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                 current_tabs = []
                 last_save_time = time.time()  # Track when we last saved tabs
                 
+                # Set up page event handlers
+                async def handle_page_created(page):
+                    print("New page created")
+                    # Set up event listeners for this page
+                    page.on("load", lambda: asyncio.create_task(handle_page_loaded(page)))
+                    
+                async def handle_page_loaded(page):
+                    print("Page loaded/refreshed")
+                    await track_page_url(page)
+                    
+                # Listen for new pages
+                context.on("page", lambda page: asyncio.create_task(handle_page_created(page)))
+                
                 # Set up route handler for website blocking
                 if blocked_websites:
                     async def route_handler(route):
@@ -92,13 +108,32 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                     # Apply the blocking
                     await context.route("**/*", route_handler)
                 
+                # Track page URLs and states
+                tab_states = {}
+                
+                # Function to track page URL changes
+                async def track_page_url(page):
+                    try:
+                        url = await page.evaluate("window.location.href")
+                        if url and not url.startswith("about:"):
+                            page_id = id(page)
+                            tab_states[page_id] = {
+                                'url': url,
+                                'timestamp': time.time()
+                            }
+                            return url
+                    except Exception as e:
+                        print(f"Error tracking page URL: {e}")
+                    return None
+                
                 # Function to save open tabs
                 async def save_tabs(force_save=False):
                     tabs_to_save = []
                     for tab in current_tabs:
                         try:
-                            url = await tab.evaluate("window.location.href")
-                            if url and not url.startswith("about:"):
+                            # Update tab state before saving
+                            url = await track_page_url(tab)
+                            if url:
                                 tabs_to_save.append(url)
                         except Exception as e:
                             print(f"Error saving tab: {e}")
@@ -114,9 +149,36 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                         if not tabs_to_save and force_save:
                             tabs_to_save = [DEFAULT_URL]
                         
+                        # Get additional state information for each tab
+                        tab_info = []
+                        for i, url in enumerate(tabs_to_save):
+                            # Try to get scroll position and form input values
+                            tab_data = {'url': url}
+                            try:
+                                if i < len(current_tabs):
+                                    # Get scroll position
+                                    scroll_pos = await current_tabs[i].evaluate("""
+                                        () => {
+                                            return {
+                                                x: window.scrollX || window.pageXOffset,
+                                                y: window.scrollY || window.pageYOffset
+                                            };
+                                        }
+                                    """)
+                                    tab_data['scroll'] = scroll_pos
+                            except Exception as e:
+                                print(f"Error capturing tab state: {e}")
+                            
+                            tab_info.append(tab_data)
+                        
+                        # Save all tab data with state information
                         with open(GLOBAL_TABS_FILE, 'w') as f:
-                            json.dump({"tabs": tabs_to_save, "timestamp": time.time()}, f)
-                        print(f"Saved {len(tabs_to_save)} tabs for future sessions")
+                            json.dump({
+                                "tabs": tabs_to_save, 
+                                "tab_info": tab_info,
+                                "timestamp": time.time()
+                            }, f)
+                        print(f"Saved {len(tabs_to_save)} tabs with state for future sessions")
                     except Exception as e:
                         print(f"Error saving tabs: {e}")
                     
@@ -130,6 +192,21 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                     try:
                         await first_page.goto(open_tabs[0], timeout=30000)
                         print(f"Opened first tab: {open_tabs[0]}")
+                        
+                        # Restore first tab's state if available
+                        if tab_info and len(tab_info) > 0:
+                            first_tab_data = tab_info[0]
+                            
+                            # Restore scroll position
+                            if 'scroll' in first_tab_data:
+                                try:
+                                    scroll_pos = first_tab_data['scroll']
+                                    await first_page.evaluate(
+                                        f"window.scrollTo({scroll_pos['x']}, {scroll_pos['y']})"
+                                    )
+                                    print(f"Restored scroll position for first tab")
+                                except Exception as e:
+                                    print(f"Error restoring first tab scroll position: {e}")
                     except Exception as e:
                         print(f"Error opening first tab: {e}")
                         await first_page.goto(DEFAULT_URL)
@@ -235,6 +312,21 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                             new_tab = await context.new_page()
                             current_tabs.append(new_tab)
                             await new_tab.goto(tab_url, timeout=30000)
+                            
+                            # Restore tab state if available
+                            if len(tab_info) > i:
+                                tab_data = tab_info[i]
+                                
+                                # Restore scroll position
+                                if 'scroll' in tab_data:
+                                    try:
+                                        scroll_pos = tab_data['scroll']
+                                        await new_tab.evaluate(
+                                            f"window.scrollTo({scroll_pos['x']}, {scroll_pos['y']})"
+                                        )
+                                        print(f"Restored scroll position for tab {i+1}")
+                                    except Exception as e:
+                                        print(f"Error restoring scroll position: {e}")
                         except Exception as e:
                             print(f"Error opening tab {i+1}: {e}")
                 else:
