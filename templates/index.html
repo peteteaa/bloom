@@ -122,6 +122,73 @@
             to { transform: translateX(0); opacity: 1; }
         }
 
+        /* Checkbox group styles */
+        .checkbox-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 5px;
+        }
+        
+        .checkbox-group label {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0;
+            cursor: pointer;
+        }
+        
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+            margin-right: 8px;
+        }
+        
+        /* Class list styles */
+        #classList {
+            margin-top: 10px;
+        }
+        
+        .class-item {
+            background-color: #f8f9fa;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+            position: relative;
+        }
+        
+        .class-item h3 {
+            margin: 0 0 5px 0;
+            font-size: 16px;
+            color: #333;
+        }
+        
+        .class-item p {
+            margin: 5px 0;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .delete-class {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        
+        .empty-message {
+            color: #6c757d;
+            font-style: italic;
+        }
+        
         @media (max-width: 768px) {
             .container {
                 flex-direction: column;
@@ -171,6 +238,54 @@
                     
                     <button type="submit">Schedule Assignment</button>
                 </form>
+            </div>
+            
+            <div class="card">
+                <h2>Add Class</h2>
+                <form id="classForm">
+                    <div class="form-group">
+                        <label for="className">Class Name:</label>
+                        <input type="text" id="className" required placeholder="e.g., Calculus 101">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Class Days:</label>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" name="classDays" value="0"> Monday</label>
+                            <label><input type="checkbox" name="classDays" value="1"> Tuesday</label>
+                            <label><input type="checkbox" name="classDays" value="2"> Wednesday</label>
+                            <label><input type="checkbox" name="classDays" value="3"> Thursday</label>
+                            <label><input type="checkbox" name="classDays" value="4"> Friday</label>
+                            <label><input type="checkbox" name="classDays" value="5"> Saturday</label>
+                            <label><input type="checkbox" name="classDays" value="6"> Sunday</label>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="classStartTime">Start Time:</label>
+                        <input type="time" id="classStartTime" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="classEndTime">End Time:</label>
+                        <input type="time" id="classEndTime" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="classLocation">Location (optional):</label>
+                        <input type="text" id="classLocation" placeholder="e.g., Room 101">
+                    </div>
+                    
+                    <button type="submit">Add Class</button>
+                </form>
+            </div>
+            
+            <div class="card" id="classListCard">
+                <h2>Your Classes</h2>
+                <div id="classList">
+                    <!-- Class list will be populated here -->
+                    <p class="empty-message">No classes added yet.</p>
+                </div>
             </div>
         </div>
         

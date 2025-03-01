@@ -4,8 +4,9 @@ import json
 
 app = Flask(__name__, static_url_path='/static')
 
-# Store tasks and assignments in memory
+# Store tasks, classes, and assignments in memory
 tasks = []
+classes = []
 
 class Task:
     def __init__(self, title, due_date, time_needed, priority, description=None):
@@ -15,6 +16,14 @@ class Task:
         self.priority = int(priority)  # 1-5, 5 being highest
         self.description = description
         self.scheduled_times = []  # List of scheduled study sessions
+
+class Class:
+    def __init__(self, name, days, start_time, end_time, location=None):
+        self.name = name
+        self.days = days  # List of weekday indices (0=Monday, 6=Sunday)
+        self.start_time = start_time  # Format: 'HH:MM'
+        self.end_time = end_time  # Format: 'HH:MM'
+        self.location = location
 
 @app.route('/')
 def index():
@@ -45,6 +54,63 @@ def get_tasks():
                 'borderColor': '#007bff'
             })
     
+    # Add class schedules (green)
+    # We'll add recurring events for each class for the next 4 weeks
+    weekday_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    today = datetime.now().date()
+    
+    # Get the date range from query parameters if provided
+    start_date_str = request.args.get('start')
+    end_date_str = request.args.get('end')
+    
+    if start_date_str and end_date_str:
+        try:
+            # Parse the date range
+            if 'T' in start_date_str:
+                start_date = datetime.fromisoformat(start_date_str.replace('Z', '')).date()
+            else:
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                
+            if 'T' in end_date_str:
+                end_date = datetime.fromisoformat(end_date_str.replace('Z', '')).date()
+            else:
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            # Default to 4 weeks if parsing fails
+            start_date = today
+            end_date = today + timedelta(days=28)
+    else:
+        # Default to 4 weeks if not provided
+        start_date = today
+        end_date = today + timedelta(days=28)
+    
+    # Generate class events for the date range
+    for cls in classes:
+        for day_idx in cls.days:
+            # Find the next occurrence of this weekday
+            days_ahead = (day_idx - today.weekday()) % 7
+            next_day = today + timedelta(days=days_ahead)
+            
+            # Generate recurring events for this class
+            current_date = next_day
+            while current_date <= end_date:
+                if current_date >= start_date:
+                    class_start = f"{current_date.isoformat()}T{cls.start_time}:00"
+                    class_end = f"{current_date.isoformat()}T{cls.end_time}:00"
+                    
+                    location_text = f" ({cls.location})" if cls.location else ""
+                    events.append({
+                        'title': f"Class: {cls.name}{location_text}",
+                        'start': class_start,
+                        'end': class_end,
+                        'backgroundColor': '#28a745',  # Green
+                        'borderColor': '#28a745',
+                        'classId': classes.index(cls)  # Store index for potential deletion
+                    })
+                
+                # Move to next week
+                current_date += timedelta(days=7)
+    
     return jsonify(events)
 
 @app.route('/api/tasks', methods=['POST'])
@@ -62,17 +128,45 @@ def add_task():
     return jsonify({'status': 'success'})
 
 def is_time_slot_available(start_time, end_time, existing_sessions):
-    """Check if a time slot is available."""
+    """Check if a time slot is available and doesn't conflict with classes."""
     start = datetime.strptime(start_time, '%Y-%m-%dT%H:%M:%S')
     end = datetime.strptime(end_time, '%Y-%m-%dT%H:%M:%S')
     
+    # Check against existing study sessions
     for session in existing_sessions:
         session_start = datetime.strptime(session['start'], '%Y-%m-%dT%H:%M:%S')
         session_end = datetime.strptime(session['end'], '%Y-%m-%dT%H:%M:%S')
         
-        # Check for overlap
+        # Check for overlap with other study sessions
         if (start < session_end and end > session_start):
             return False
+    
+    # Check against class schedules
+    for cls in classes:
+        # Check if the day of the week matches any class days
+        if start.weekday() in cls.days:
+            # Parse class times
+            class_start_hour, class_start_minute = map(int, cls.start_time.split(':'))
+            class_end_hour, class_end_minute = map(int, cls.end_time.split(':'))
+            
+            # Create datetime objects for class times on the same day as start
+            class_start = start.replace(
+                hour=class_start_hour, 
+                minute=class_start_minute, 
+                second=0, 
+                microsecond=0
+            )
+            class_end = start.replace(
+                hour=class_end_hour, 
+                minute=class_end_minute, 
+                second=0, 
+                microsecond=0
+            )
+            
+            # Check for overlap with class
+            if (start < class_end and end > class_start):
+                return False
+    
     return True
 
 def find_available_slot(date, hours_needed, existing_sessions):
@@ -160,6 +254,62 @@ def schedule_study_sessions():
                 
                 current_try_date += timedelta(days=1)
                 attempt += 1
+
+@app.route('/api/classes', methods=['GET'])
+def get_classes():
+    """Get all classes."""
+    class_list = []
+    for cls in classes:
+        # Convert weekday indices to readable format
+        weekday_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        days_readable = [weekday_names[day] for day in cls.days]
+        
+        class_list.append({
+            'name': cls.name,
+            'days': cls.days,  # Numeric for processing
+            'daysReadable': days_readable,  # Human-readable
+            'startTime': cls.start_time,
+            'endTime': cls.end_time,
+            'location': cls.location
+        })
+    return jsonify(class_list)
+
+@app.route('/api/classes', methods=['POST'])
+def add_class():
+    """Add a new class."""
+    data = request.json
+    
+    # Convert day strings to weekday indices if needed
+    if isinstance(data['days'][0], str):
+        weekday_map = {'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3, 'friday': 4, 'saturday': 5, 'sunday': 6}
+        days = [weekday_map[day.lower()] for day in data['days']]
+    else:
+        days = data['days']
+    
+    new_class = Class(
+        name=data['name'],
+        days=days,
+        start_time=data['startTime'],
+        end_time=data['endTime'],
+        location=data.get('location', '')
+    )
+    classes.append(new_class)
+    
+    # Recalculate study sessions to account for new class schedule
+    schedule_study_sessions()
+    
+    return jsonify({'status': 'success'})
+
+@app.route('/api/classes/<int:index>', methods=['DELETE'])
+def delete_class(index):
+    """Delete a class by index."""
+    if 0 <= index < len(classes):
+        del classes[index]
+        # Recalculate study sessions
+        schedule_study_sessions()
+        return jsonify({'status': 'success'})
+    else:
+        return jsonify({'status': 'error', 'message': 'Class not found'}), 404
 
 if __name__ == '__main__':
     app.run(debug=True)
