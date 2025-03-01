@@ -15,6 +15,22 @@ A productivity-focused browser with website blocking and auto-reopen features to
   - Close button for explicitly closing the browser
   - Keyboard shortcuts (Ctrl+Q) for closing the browser
 
+## File Descriptions
+
+1. **task.py**: This is the main Flask application file that handles server-side logic, including API endpoints for managing tasks and blocked websites.
+
+2. **debug_browser.py**: This file contains the logic for launching the browser with specified website blocking and auto-reopen functionality.
+
+3. **start_browser.py**: This file is responsible for starting the browser process and managing command-line arguments for blocked websites and auto-reopen functionality.
+
+4. **browser_launcher.py**: This file contains functions related to the browser's behavior, including opening and closing tabs, managing sessions, and handling events.
+
+5. **app.js**: This is the main JavaScript file that manages the user interface, handles user interactions, and communicates with the Flask backend.
+
+6. **styles.css**: This CSS file contains styles for the application, including the layout and appearance of the user interface elements.
+
+7. **index.html**: This is the main HTML file that serves as the entry point for the application, containing the structure and layout for the user interface.
+
 ## Requirements
 
 - Python 3.8+
