@@ -313,6 +313,9 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                             current_tabs.append(new_tab)
                             await new_tab.goto(tab_url, timeout=30000)
                             
+                            # Force track this tab's URL
+                            await track_page_url(new_tab)
+                            
                             # Restore tab state if available
                             if len(tab_info) > i:
                                 tab_data = tab_info[i]
@@ -327,6 +330,14 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                                         print(f"Restored scroll position for tab {i+1}")
                                     except Exception as e:
                                         print(f"Error restoring scroll position: {e}")
+                                        
+                            # Set up event listener for this specific tab
+                            await new_tab.evaluate("""
+                                window.addEventListener('beforeunload', function(e) {
+                                    // Signal that we're about to unload this page
+                                    console.log('Tab is being unloaded - should save state');
+                                });
+                            """)
                         except Exception as e:
                             print(f"Error opening tab {i+1}: {e}")
                 else:
@@ -345,6 +356,22 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                 # Track browser state
                 browser_closed = False
                 
+                # Set up a dedicated periodic tab saver
+                async def periodic_tab_saver():
+                    while not browser_closed:
+                        try:
+                            # Save tabs every 10 seconds
+                            await asyncio.sleep(10)  # More frequent saves
+                            if current_tabs:
+                                print("Periodic tab save triggered")
+                                await save_tabs(force_save=True)
+                        except Exception as e:
+                            print(f"Error in periodic tab saver: {e}")
+                            await asyncio.sleep(1)  # Sleep on error
+                
+                # Start the periodic saver as a background task
+                asyncio.create_task(periodic_tab_saver())
+                
                 # Main browser monitoring loop
                 print("Browser open and running - monitoring for close events")
                 while not browser_closed:
@@ -354,8 +381,36 @@ async def start_browser(blocked_websites=None, auto_reopen=True, max_reopens=MAX
                             print("Browser disconnected - will relaunch automatically")
                             browser_closed = True
                             
-                            # Try to save tabs before proceeding
+                            # Try to save tabs before proceeding - CRITICAL SAVE POINT
                             try:
+                                # Extra forceful save to make absolutely sure tabs are saved
+                                print("CRITICAL: Performing emergency tab save before browser disconnection")
+                                
+                                # First make a direct attempt to save the global_tabs.json file
+                                # even if save_tabs function has issues
+                                emergency_tabs = []
+                                for tab in current_tabs:
+                                    try:
+                                        page_id = id(tab)
+                                        if page_id in tab_states:
+                                            emergency_tabs.append(tab_states[page_id]['url'])
+                                    except Exception:
+                                        pass  # Ignore errors in emergency tab collection
+                                
+                                if emergency_tabs:
+                                    try:
+                                        with open(GLOBAL_TABS_FILE, 'w') as f:
+                                            json.dump({
+                                                "tabs": emergency_tabs,
+                                                "tab_info": [{'url': url} for url in emergency_tabs],
+                                                "timestamp": time.time(),
+                                                "emergency": True
+                                            }, f)
+                                        print(f"EMERGENCY: Saved {len(emergency_tabs)} tabs directly to file")
+                                    except Exception as direct_e:
+                                        print(f"CRITICAL ERROR: Even emergency save failed: {direct_e}")
+                                
+                                # Now try the regular save
                                 open_tabs = await save_tabs(force_save=True)
                                 print(f"Saved {len(open_tabs)} tabs before browser disconnection")
                             except Exception as e:
